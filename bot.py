@@ -6,6 +6,8 @@ from google import genai
 from google.genai import types
 from collections import defaultdict
 import time
+from datetime import datetime
+import pytz # مكتبة لضبط التوقيت الصحيح
 from aiohttp import web
 
 # --- الإعدادات وتخصيص الشخصية ---
@@ -15,19 +17,8 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 # ضع هنا آيدي القناة المخصصة التي سيرد فيها البوت بدون منشن
 ALLOWED_CHANNEL_ID = 1178172943990259856  
 
-SYSTEM_INSTRUCTION = """
-You are B9 AI, a highly intelligent, helpful, and friendly AI assistant.
-- You must support both Arabic and English perfectly, responding in the language the user uses.
-- Maintain a polite, engaging, and professional personality.
-- Keep track of the conversation context and memory.
-- Avoid using inappropriate language under any circumstances.
-"""
-
 # إعداد عميل Gemini الجديد
 client = genai.Client(api_key=GEMINI_API_KEY)
-config = types.GenerateContentConfig(
-    system_instruction=SYSTEM_INSTRUCTION,
-)
 
 # إعداد صلاحيات ديسكورد
 intents = discord.Intents.default()
@@ -71,7 +62,7 @@ async def send_long_message(channel, text):
 
 @bot.event
 async def on_ready():
-    print(f'✅ {bot.user.name} يعمل الآن سحابياً وبنجاح!')
+    print(f'✅ {bot.user.name} يعمل الآن سحابياً وبأحدث تاريخ!')
 
 @bot.event
 async def on_message(message):
@@ -87,8 +78,31 @@ async def on_message(message):
 
     async with message.channel.typing():
         channel_id = message.channel.id
+        
+        # جلب تاريخ اليوم وتوقيت السعودية الحالي وتمريره للبوت في كل رسالة
+        tz = pytz.timezone('Asia/Riyadh')
+        current_date = datetime.now(tz).strftime('%A, %B %d, %Y')
+        current_time_str = datetime.now(tz).strftime('%I:%M %p')
+
+        SYSTEM_INSTRUCTION = f"""
+        You are B9 AI, a highly intelligent, helpful, and friendly AI assistant.
+        - CRITICAL: Today's current date is {current_date} and the time is {current_time_str}. Always rely on this info if asked about dates or time.
+        - You must support both Arabic and English perfectly, responding in the language the user uses.
+        - Maintain a polite, engaging, and professional personality.
+        - Keep track of the conversation context and memory.
+        - Avoid using inappropriate language under any circumstances.
+        """
+        
+        config = types.GenerateContentConfig(
+            system_instruction=SYSTEM_INSTRUCTION,
+        )
+        
+        # تحديث جلسة الذاكرة لتشمل التاريخ اللحظي
         if channel_id not in chat_sessions:
             chat_sessions[channel_id] = client.chats.create(model="gemini-2.5-flash", config=config)
+        else:
+            # تحديث الإعدادات للتاريخ الجديد
+            chat_sessions[channel_id]._config = config
             
         chat = chat_sessions[channel_id]
         try:
@@ -107,13 +121,10 @@ async def start_web_server():
     app.router.add_get('/', handle)
     runner = web.AppRunner(app)
     await runner.setup()
-    # Render يمرر المنفذ تلقائياً عبر المتغير "PORT"، وإذا لم يجد يستخدم 10000
     port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    print(f"Web server started on port {port}")
 
-# تشغيل ديسكورد وسيرفر الويب معاً
 async def main():
     await start_web_server()
     async with bot:
@@ -121,5 +132,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-bot.run(DISCORD_TOKEN)
