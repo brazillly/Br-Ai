@@ -6,6 +6,7 @@ from google import genai
 from google.genai import types
 from collections import defaultdict
 import time
+from aiohttp import web
 
 # --- الإعدادات وتخصيص الشخصية ---
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
@@ -36,8 +37,6 @@ intents.presences = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-
-# قاموس لتخزين ذاكرة المحادثة لكل قناة
 chat_sessions = {}
 
 # نظام منع السبام (3 رسائل في 5 ثوانٍ)
@@ -88,18 +87,39 @@ async def on_message(message):
 
     async with message.channel.typing():
         channel_id = message.channel.id
-
-        # إدارة الذاكرة المستمرة للـ Chats
         if channel_id not in chat_sessions:
             chat_sessions[channel_id] = client.chats.create(model="gemini-2.5-flash", config=config)
-
+            
         chat = chat_sessions[channel_id]
-
         try:
             response = chat.send_message(message.content)
             await send_long_message(message.channel, response.text)
         except Exception as e:
             print(f"Error: {e}")
             await message.channel.send("⚠️ حدث خطأ أثناء معالجة الطلب، يرجى المحاولة لاحقاً.")
+
+# --- سيرفر الويب الوهمي لخدعة Render مجاناً ---
+async def handle(request):
+    return web.Response(text="Bot is running alive!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    # Render يمرر المنفذ تلقائياً عبر المتغير "PORT"، وإذا لم يجد يستخدم 10000
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"Web server started on port {port}")
+
+# تشغيل ديسكورد وسيرفر الويب معاً
+async def main():
+    await start_web_server()
+    async with bot:
+        await bot.start(DISCORD_TOKEN)
+
+if __name__ == "__main__":
+    asyncio.run(main())
 
 bot.run(DISCORD_TOKEN)
