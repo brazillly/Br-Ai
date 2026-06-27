@@ -2,7 +2,7 @@ import os
 import asyncio
 import discord
 from discord.ext import commands
-from openai import OpenAI  # المكتبة الرسمية لـ OpenAI
+from openai import OpenAI
 from collections import defaultdict
 import time
 from datetime import datetime
@@ -29,7 +29,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ذاكرة المحادثة لـ OpenAI
 chat_histories = defaultdict(list)
-MAX_MEMORY = 12 
+MAX_MEMORY = 10 
 
 # نظام منع السبام
 user_message_timers = defaultdict(list)
@@ -92,29 +92,34 @@ async def on_message(message):
         - Maintain a polite, engaging, and professional personality.
         """
 
+        # تهيئة أو تحديث رسالة النظام بالتاريخ الجديد
         if len(chat_histories[channel_id]) == 0:
             chat_histories[channel_id].append({"role": "system", "content": SYSTEM_INSTRUCTION})
         else:
             chat_histories[channel_id][0] = {"role": "system", "content": SYSTEM_INSTRUCTION}
 
-        # التحقق إذا أرسل المستخدم صورة مع الرسالة لقراءتها وتحليلها
-        content_list = [{"type": "text", "text": message.content if message.content else "حلل هذه الصورة"}]
+        # التعامل مع الرسالة سواءً نص أو صورة بشكل متوافق ونظيف
+        user_text = message.content if message.content else "حلل هذه الصورة"
         
-        if message.attachments:
-            attachment = message.attachments[0]
-            if attachment.filename.lower().endswith(('png', 'jpg', 'jpeg', 'webp')):
-                content_list.append({
-                    "type": "image_url",
-                    "image_url": {"url": attachment.url} # نمرر رابط الصورة مباشرة لـ OpenAI
-                })
+        # إذا كانت هناك صورة مرفقة
+        if message.attachments and message.attachments[0].filename.lower().endswith(('png', 'jpg', 'jpeg', 'webp')):
+            user_content = [
+                {"type": "text", "text": user_text},
+                {"type": "image_url", "image_url": {"url": message.attachments[0].url}}
+            ]
+        else:
+            # نص عادي لتجنب تعقيد الذاكرة لاحقاً
+            user_content = user_text
 
-        chat_histories[channel_id].append({"role": "user", "content": content_list})
+        # إضافة رسالة المستخدم الحالية للذاكرة
+        chat_histories[channel_id].append({"role": "user", "content": user_content})
 
+        # التحكم بحجم الذاكرة
         if len(chat_histories[channel_id]) > MAX_MEMORY:
             chat_histories[channel_id] = [chat_histories[channel_id][0]] + chat_histories[channel_id][-(MAX_MEMORY-1):]
 
         try:
-            # استدعاء نموذج gpt-4o-mini الذكي، الاقتصادي والسريع جداً للرؤية والنصوص
+            # استدعاء النموذج
             completion = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=chat_histories[channel_id],
@@ -123,13 +128,14 @@ async def on_message(message):
             
             response_text = completion.choices[0].message.content
             
-            # حفظ الرد النصي البسيط في الذاكرة للسياق القادم
+            # حفظ رد الـ assistant بالذاكرة كـ نص
             chat_histories[channel_id].append({"role": "assistant", "content": response_text})
+            
             await send_long_message(message.channel, response_text)
 
         except Exception as e:
-            print(f"OpenAI Error: {e}")
-            await message.channel.send("⚠️ حدث خطأ أثناء معالجة الطلب، يرجى التحاولة لاحقاً.")
+            print(f"🔴 OpenAI Error: {e}")
+            await message.channel.send("⚠️ حدث خطأ أثناء معالجة الطلب، يرجى المحاولة لاحقاً.")
 
 # --- سيرفر الويب الوهمي لـ Render ---
 async def handle(request):
@@ -152,4 +158,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
